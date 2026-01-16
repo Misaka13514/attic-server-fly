@@ -1,0 +1,61 @@
+name: Build and Deploy to Fly.io
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  NIX_IMAGE_NAME: attic-server-fly
+  FLY_APP_NAME: attic-server-fly
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: lowercase github.repository
+        id: lowercase
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY@L}" >> ${GITHUB_OUTPUT}
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker Image with Nix
+        run: |
+          nix build .#dockerImage
+          docker load < result
+
+      - name: Tag and Push Image to GHCR
+        run: |
+          docker tag ${{ env.NIX_IMAGE_NAME }}:latest ${{ env.REGISTRY }}/${{ steps.lowercase.outputs.IMAGE_NAME }}:latest
+          docker push ${{ env.REGISTRY }}/${{ steps.lowercase.outputs.IMAGE_NAME }}:latest
+
+      - name: Deploy to Fly.io
+        run: |
+          nix develop --command flyctl deploy --image ${{ env.REGISTRY }}/${{ steps.lowercase.outputs.IMAGE_NAME }}:latest --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Run Nix Flake Check
+        run: nix flake check
