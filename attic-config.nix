@@ -81,8 +81,8 @@ _: {
     # If unset, the credentials are read from the `AWS_ACCESS_KEY_ID` and
     # `AWS_SECRET_ACCESS_KEY` environment variables.
     credentials = {
-      access_key_id = "rclone";
-      secret_access_key = "rclone";
+      access_key_id = "rcloneadmin";
+      secret_access_key = "rcloneadmin";
     };
   };
 

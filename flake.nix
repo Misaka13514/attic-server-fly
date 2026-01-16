@@ -53,8 +53,7 @@
           echo "--- Starting Rclone S3 Gateway ---"
           ${rcloneBin} serve s3 remote:attic \
             --addr 127.0.0.1:9000 \
-            --user rclone \
-            --pass rclone \
+            --auth-key rcloneadmin,rcloneadmin \
             --vfs-cache-mode full \
             --vfs-cache-max-size 5G \
             --vfs-read-chunk-size 32M \
