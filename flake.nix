@@ -89,6 +89,7 @@
 
           contents = [
             entrypoint
+            pkgs.attic-client
             pkgs.attic-server
             pkgs.bash
             pkgs.cacert
