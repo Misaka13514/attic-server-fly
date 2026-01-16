@@ -56,10 +56,11 @@
             --auth-key rcloneadmin,rcloneadmin \
             --vfs-cache-mode full \
             --vfs-cache-max-size 5G \
-            --vfs-read-chunk-size 16M \
+            --vfs-read-chunk-size 1M \
             --vfs-write-back 5s \
             --buffer-size 0M \
             --transfers 1 \
+            --checkers 1 \
             --no-modtime \
             --onedrive-no-versions \
             --log-level INFO \
@@ -98,6 +99,7 @@
             pkgs.coreutils
             pkgs.gnused
             pkgs.netcat
+            pkgs.procps
             pkgs.rclone
           ];
 
