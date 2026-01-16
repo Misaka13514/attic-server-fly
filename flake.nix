@@ -55,7 +55,7 @@
             --addr 127.0.0.1:9000 \
             --auth-key rcloneadmin,rcloneadmin \
             --vfs-cache-mode full \
-            --vfs-cache-max-size 5G \
+            --vfs-cache-max-size 2G \
             --vfs-read-chunk-size 1M \
             --vfs-write-back 5s \
             --buffer-size 0M \
@@ -112,6 +112,7 @@
               "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
               "RUST_LOG=attic=info,error"
               "XDG_CACHE_HOME=/tmp"
+              "GOGC=20"
             ];
             WorkingDir = "/app";
           };

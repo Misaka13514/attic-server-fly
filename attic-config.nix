@@ -114,7 +114,7 @@ _: {
     # Compression type
     #
     # Can be "none", "brotli", "zstd", or "xz"
-    type = "zstd";
+    type = "none";
 
     # Compression level
     #level = 8;
