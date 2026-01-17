@@ -25,7 +25,7 @@
         atticConfig = import ./attic-config.nix { };
         atticConfigFile = (pkgs.formats.toml { }).generate "attic.toml" atticConfig;
 
-        busybox = pkgs.busybox;
+        inherit (pkgs) busybox;
         shBin = "${busybox}/bin/sh";
 
         cleanBin =
@@ -134,9 +134,9 @@
         };
 
         packages = {
-          dockerImage = dockerImage;
+          inherit dockerImage;
           default = dockerImage;
-          flyctl = pkgs.flyctl;
+          inherit (pkgs) flyctl;
         };
 
         formatter = pkgs.nixfmt;
