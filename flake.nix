@@ -25,18 +25,8 @@
         atticConfig = import ./attic-config.nix { };
         atticConfigFile = (pkgs.formats.toml { }).generate "attic.toml" atticConfig;
 
-        inherit (pkgs) busybox;
+        inherit (pkgs) attic-server busybox rclone;
         shBin = "${busybox}/bin/sh";
-
-        cleanBin =
-          pkg:
-          pkgs.runCommand "${pkg.pname}-minimal-bin" { } ''
-            mkdir -p $out/bin
-            cp -r ${pkg}/bin/* $out/bin/
-          '';
-
-        rcloneMinimal = cleanBin pkgs.rclone;
-        atticServerMinimal = cleanBin pkgs.attic-server;
 
         entrypoint = pkgs.writeScriptBin "entrypoint" ''
           #!${shBin}
@@ -57,7 +47,7 @@
           if [ -z "$ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64" ]; then echo "Error: ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64 is missing"; exit 1; fi
 
           echo "--- Starting Rclone S3 Gateway ---"
-          ${rcloneMinimal}/bin/rclone serve s3 remote:attic \
+          ${rclone}/bin/rclone serve s3 remote:attic \
             --addr 127.0.0.1:9000 \
             --auth-key rcloneadmin,rcloneadmin \
             --vfs-cache-mode full \
@@ -79,7 +69,7 @@
           echo "Rclone is up."
 
           echo "--- Starting Attic Server ---"
-          ${atticServerMinimal}/bin/atticd -f ${atticConfigFile} --mode api-server \
+          ${attic-server}/bin/atticd -f ${atticConfigFile} --mode api-server \
             2>&1 | ${busybox}/bin/sed 's/^/[ATTIC]  /' &
           ATTIC_PID=$!
 
@@ -97,11 +87,11 @@
           '';
 
           contents = [
-            entrypoint
+            attic-server
             busybox
+            entrypoint
             pkgs.cacert
-            rcloneMinimal
-            atticServerMinimal
+            rclone
           ];
 
           config = {
