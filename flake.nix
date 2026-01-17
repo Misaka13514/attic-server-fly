@@ -25,22 +25,28 @@
         atticConfig = import ./attic-config.nix { };
         atticConfigFile = (pkgs.formats.toml { }).generate "attic.toml" atticConfig;
 
-        sedBin = "${pkgs.gnused}/bin/sed";
-        timeoutBin = "${pkgs.coreutils}/bin/timeout";
-        sleepBin = "${pkgs.coreutils}/bin/sleep";
-        ncBin = "${pkgs.netcat}/bin/nc";
-        rcloneBin = "${pkgs.rclone}/bin/rclone";
-        atticdBin = "${pkgs.attic-server}/bin/atticd";
-        shBin = "${pkgs.bash}/bin/sh";
+        busybox = pkgs.busybox;
+        shBin = "${busybox}/bin/sh";
 
-        entrypoint = pkgs.writeShellScriptBin "entrypoint" ''
-          set -euo pipefail
-          # set -x
+        cleanBin =
+          pkg:
+          pkgs.runCommand "${pkg.pname}-minimal-bin" { } ''
+            mkdir -p $out/bin
+            cp -r ${pkg}/bin/* $out/bin/
+          '';
+
+        rcloneMinimal = cleanBin pkgs.rclone;
+        atticServerMinimal = cleanBin pkgs.attic-server;
+
+        entrypoint = pkgs.writeScriptBin "entrypoint" ''
+          #!${shBin}
+          set -e
 
           shutdown() {
             echo "Received SIGTERM/SIGINT, shutting down..."
-            [ -n "''${ATTIC_PID:-}" ] && kill -TERM "$ATTIC_PID" && wait "$ATTIC_PID"
-            [ -n "''${RCLONE_PID:-}" ] && kill -TERM "$RCLONE_PID" && wait "$RCLONE_PID"
+            [ -n "''${ATTIC_PID:-}" ] && kill -TERM "$ATTIC_PID"
+            [ -n "''${RCLONE_PID:-}" ] && kill -TERM "$RCLONE_PID"
+            wait
             exit 0
           }
           trap shutdown SIGTERM SIGINT
@@ -51,7 +57,7 @@
           if [ -z "$ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64" ]; then echo "Error: ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64 is missing"; exit 1; fi
 
           echo "--- Starting Rclone S3 Gateway ---"
-          ${rcloneBin} serve s3 remote:attic \
+          ${rcloneMinimal}/bin/rclone serve s3 remote:attic \
             --addr 127.0.0.1:9000 \
             --auth-key rcloneadmin,rcloneadmin \
             --vfs-cache-mode full \
@@ -65,19 +71,19 @@
             --onedrive-no-versions \
             --log-level INFO \
             --stats 1m \
-            2>&1 | ${sedBin} -u 's/^/[RCLONE] /' &
+            2>&1 | ${busybox}/bin/sed 's/^/[RCLONE] /' &
           RCLONE_PID=$!
 
           echo "Waiting for Rclone..."
-          ${timeoutBin} 30 ${shBin} -c "until ${ncBin} -z 127.0.0.1 9000; do ${sleepBin} 1; done"
+          ${busybox}/bin/timeout 30 ${shBin} -c "until ${busybox}/bin/nc -z 127.0.0.1 9000; do ${busybox}/bin/sleep 1; done"
           echo "Rclone is up."
 
           echo "--- Starting Attic Server ---"
-          ${atticdBin} -f ${atticConfigFile} --mode api-server \
-            2>&1 | ${sedBin} -u 's/^/[ATTIC]  /' &
+          ${atticServerMinimal}/bin/atticd -f ${atticConfigFile} --mode api-server \
+            2>&1 | ${busybox}/bin/sed 's/^/[ATTIC]  /' &
           ATTIC_PID=$!
 
-          wait -n $ATTIC_PID $RCLONE_PID
+          wait
         '';
 
         dockerImage = pkgs.dockerTools.buildLayeredImage {
@@ -92,15 +98,10 @@
 
           contents = [
             entrypoint
-            pkgs.attic-client
-            pkgs.attic-server
-            pkgs.bash
+            busybox
             pkgs.cacert
-            pkgs.coreutils
-            pkgs.gnused
-            pkgs.netcat
-            pkgs.procps
-            pkgs.rclone
+            rcloneMinimal
+            atticServerMinimal
           ];
 
           config = {
@@ -113,6 +114,7 @@
               "RUST_LOG=attic=info,error"
               "XDG_CACHE_HOME=/tmp"
               "GOGC=20"
+              "PATH=/bin:${busybox}/bin"
             ];
             WorkingDir = "/app";
           };
@@ -131,8 +133,11 @@
           ];
         };
 
-        packages.dockerImage = dockerImage;
-        packages.default = dockerImage;
+        packages = {
+          dockerImage = dockerImage;
+          default = dockerImage;
+          flyctl = pkgs.flyctl;
+        };
 
         formatter = pkgs.nixfmt;
         checks = {

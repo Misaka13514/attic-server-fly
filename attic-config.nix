@@ -18,7 +18,7 @@ _: {
   #
   # The API endpoint _must_ end with a slash (e.g., `https://domain.tld/attic/`
   # not `https://domain.tld/attic`).
-  api-endpoint = "https://attic-server-fly.fly.dev";
+  api-endpoint = "https://attic-server-fly.fly.dev/";
 
   # The maximum size of the upload info JSON, in bytes.
   #max-nar-info-size = 1048576; # 1 MiB
