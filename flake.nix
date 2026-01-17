@@ -25,7 +25,10 @@
         atticConfig = import ./attic-config.nix { };
         atticConfigFile = (pkgs.formats.toml { }).generate "attic.toml" atticConfig;
 
-        inherit (pkgs) attic-server busybox rclone;
+        inherit (pkgs) attic-server busybox;
+        rclone = pkgs.rclone.override {
+          enableCmount = false;
+        };
         shBin = "${busybox}/bin/sh";
 
         entrypoint = pkgs.writeScriptBin "entrypoint" ''
