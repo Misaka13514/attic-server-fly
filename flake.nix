@@ -64,7 +64,7 @@
             --onedrive-no-versions \
             --log-level INFO \
             --stats 1m \
-            2>&1 | ${busybox}/bin/sed 's/^/[RCLONE] /' &
+            2>&1 | ${busybox}/bin/awk '{ print "[RCLONE] " $0; fflush(); }' &
           RCLONE_PID=$!
 
           echo "Waiting for Rclone..."
@@ -73,7 +73,7 @@
 
           echo "--- Starting Attic Server ---"
           ${attic-server}/bin/atticd -f ${atticConfigFile} --mode api-server \
-            2>&1 | ${busybox}/bin/sed 's/^/[ATTIC]  /' &
+            2>&1 | ${busybox}/bin/awk '{ print "[ATTIC]  " $0; fflush(); }' &
           ATTIC_PID=$!
 
           wait
