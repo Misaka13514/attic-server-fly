@@ -94,6 +94,7 @@
             busybox
             entrypoint
             pkgs.cacert
+            pkgs.dockerTools.fakeNss # For fly ssh console
             rclone
           ];
 
