@@ -46,37 +46,56 @@
             include ${pkgs.nginx}/conf/mime.types;
             default_type application/octet-stream;
 
-            client_max_body_size 0;
+            set_real_ip_from 172.16.0.0/12;
+            set_real_ip_from fdaa::/16;
+            real_ip_header Fly-Client-IP;
 
+            client_max_body_size 0;
             client_body_temp_path /tmp/nginx_body;
             proxy_temp_path       /tmp/nginx_proxy;
-
             access_log /dev/stdout;
+
+            map $request_method $auth_header {
+              GET     "";
+              default $http_authorization;
+            }
 
             server {
               listen 8080;
               server_name _;
 
-              proxy_set_header Host $host;
-              proxy_set_header X-Real-IP $remote_addr;
-              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-              proxy_buffering off;
-              proxy_request_buffering off;
-              proxy_http_version 1.1;
-              proxy_set_header Connection "";
-              proxy_read_timeout 600s;
-              proxy_send_timeout 600s;
-
-              location /attic-storage/ {
-                proxy_set_header Authorization "";
-                proxy_pass http://127.0.0.1:9000;
-              }
-
               location / {
                 if ($request_method = GET) {
                   rewrite ^/$ https://github.com/Misaka13514/attic-server-fly redirect;
                 }
+
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+
                 proxy_pass http://127.0.0.1:8081;
+              }
+
+              location /attic-storage/ {
+                proxy_set_header Authorization $auth_header;
+
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+
+                proxy_set_header Content-Type $content_type;
+                proxy_set_header Content-Length $content_length;
+
+                proxy_buffering off;
+                proxy_request_buffering off;
+                proxy_http_version 1.1;
+                proxy_set_header Connection "";
+                proxy_read_timeout 600s;
+                proxy_send_timeout 600s;
+
+                proxy_pass http://127.0.0.1:9000;
               }
             }
           }
@@ -165,6 +184,7 @@
             nginx
             pkgs.cacert
             pkgs.dockerTools.fakeNss # For fly ssh console
+            pkgs.tcpdump # debug
             rclone
           ];
 
