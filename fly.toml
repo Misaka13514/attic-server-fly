@@ -7,7 +7,7 @@ app = 'attic-server-fly'
 primary_region = 'lax'
 kill_signal = 'SIGINT'
 kill_timeout = 60
-swap_size_mb = 512
+swap_size_mb = 4096
 
 [http_service]
 internal_port = 8080

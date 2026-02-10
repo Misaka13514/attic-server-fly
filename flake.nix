@@ -25,11 +25,58 @@
         atticConfig = import ./attic-config.nix { };
         atticConfigFile = (pkgs.formats.toml { }).generate "attic.toml" atticConfig;
 
-        inherit (pkgs) attic-server busybox;
+        inherit (pkgs) attic-server busybox nginx;
         rclone = pkgs.rclone.override {
           enableCmount = false;
         };
         shBin = "${busybox}/bin/sh";
+
+        nginxConf = pkgs.writeText "nginx.conf" ''
+          user root root;
+          pid /tmp/nginx.pid;
+          error_log /dev/stderr info;
+          daemon off;
+          worker_processes auto;
+
+          events {
+            worker_connections 1024;
+          }
+
+          http {
+            include ${pkgs.nginx}/conf/mime.types;
+            default_type application/octet-stream;
+
+            client_max_body_size 0;
+
+            client_body_temp_path /tmp/nginx_body;
+            proxy_temp_path       /tmp/nginx_proxy;
+
+            access_log /dev/stdout;
+
+            server {
+              listen 8080;
+              server_name _;
+
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_buffering off;
+              proxy_request_buffering off;
+
+              location /s3/ {
+                rewrite ^/s3/(.*) /$1 break;
+                proxy_pass http://127.0.0.1:9000;
+              }
+
+              location / {
+                if ($request_method = GET) {
+                  rewrite ^/$ https://github.com/Misaka13514/attic-server-fly redirect;
+                }
+                proxy_pass http://127.0.0.1:8081;
+              }
+            }
+          }
+        '';
 
         entrypoint = pkgs.writeScriptBin "entrypoint" ''
           #!${shBin}
@@ -37,6 +84,7 @@
 
           shutdown() {
             echo "Received SIGTERM/SIGINT, shutting down..."
+            [ -n "''${NGINX_PID:-}" ] && kill -TERM "$NGINX_PID"
             [ -n "''${ATTIC_PID:-}" ] && kill -TERM "$ATTIC_PID"
             [ -n "''${RCLONE_PID:-}" ] && kill -TERM "$RCLONE_PID"
             wait
@@ -46,24 +94,28 @@
 
           echo "=== Starting Attic Entrypoint ==="
 
+          echo "Generating random internal S3 credentials..."
+          export AWS_ACCESS_KEY_ID=$(${busybox}/bin/head -c 16 /dev/urandom | ${busybox}/bin/hexdump -v -e '1/1 "%02x"')
+          export AWS_SECRET_ACCESS_KEY=$(${busybox}/bin/head -c 32 /dev/urandom | ${busybox}/bin/hexdump -v -e '1/1 "%02x"')
+          export RCLONE_AUTH_KEY="\"$AWS_ACCESS_KEY_ID,$AWS_SECRET_ACCESS_KEY\""
+          echo "Internal S3 credentials generated: $RCLONE_AUTH_KEY"
+
           if [ -z "$ATTIC_SERVER_DATABASE_URL" ]; then echo "Error: ATTIC_SERVER_DATABASE_URL is missing"; exit 1; fi
           if [ -z "$ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64" ]; then echo "Error: ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64 is missing"; exit 1; fi
 
-          echo "--- Starting Rclone S3 Gateway ---"
+          echo "--- Starting Rclone S3 Gateway (Port 9000) ---"
           ${rclone}/bin/rclone serve s3 remote:attic \
             --addr 127.0.0.1:9000 \
-            --auth-key rcloneadmin,rcloneadmin \
             --vfs-cache-mode full \
             --vfs-cache-max-size 2G \
             --vfs-read-chunk-size 1M \
             --vfs-write-back 5s \
             --buffer-size 0M \
-            --transfers 1 \
-            --checkers 1 \
+            --transfers 4 \
+            --checkers 4 \
             --no-modtime \
             --onedrive-no-versions \
             --log-level INFO \
-            --stats 1m \
             2>&1 | ${busybox}/bin/awk '{ print "[RCLONE] " $0; fflush(); }' &
           RCLONE_PID=$!
 
@@ -71,11 +123,20 @@
           ${busybox}/bin/timeout 30 ${shBin} -c "until ${busybox}/bin/nc -z 127.0.0.1 9000; do ${busybox}/bin/sleep 1; done"
           echo "Rclone is up."
 
-          echo "--- Starting Attic Server ---"
+          echo "--- Starting Attic Server (Port 8081) ---"
           ${attic-server}/bin/atticd -f ${atticConfigFile} --mode api-server \
             2>&1 | ${busybox}/bin/awk '{ print "[ATTIC]  " $0; fflush(); }' &
           ATTIC_PID=$!
 
+          echo "Waiting for Attic..."
+          ${busybox}/bin/timeout 30 ${shBin} -c "until ${busybox}/bin/nc -z 127.0.0.1 8081; do ${busybox}/bin/sleep 1; done"
+          echo "Attic is up."
+
+          echo "--- Starting Nginx (Port 8080) ---"
+          ${nginx}/bin/nginx -c ${nginxConf} &
+          NGINX_PID=$!
+
+          echo "All services started. Listening on 8080."
           wait
         '';
 
@@ -87,12 +148,17 @@
             mkdir -p ./app
             mkdir -p ./tmp
             mkdir -p ./root/.cache/rclone
+            mkdir -p ./var/log/nginx
+            mkdir -p ./var/run
+            mkdir -p ./tmp/nginx_body
+            mkdir -p ./tmp/nginx_proxy
           '';
 
           contents = [
             attic-server
             busybox
             entrypoint
+            nginx
             pkgs.cacert
             pkgs.dockerTools.fakeNss # For fly ssh console
             rclone
@@ -124,6 +190,7 @@
             git
             postgresql
             rclone
+            nginx
           ];
         };
 

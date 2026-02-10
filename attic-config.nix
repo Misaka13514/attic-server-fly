@@ -1,6 +1,6 @@
 _: {
   # Socket address to listen on
-  listen = "[::]:8080";
+  listen = "127.0.0.1:8081";
 
   # Allowed `Host` headers
   #
@@ -74,16 +74,16 @@ _: {
     # Custom S3 endpoint
     #
     # Set this if you are using an S3-compatible object storage (e.g., Minio).
-    endpoint = "http://127.0.0.1:9000";
+    endpoint = "https://attic-server-fly.fly.dev/s3";
 
     # Credentials
     #
     # If unset, the credentials are read from the `AWS_ACCESS_KEY_ID` and
     # `AWS_SECRET_ACCESS_KEY` environment variables.
-    credentials = {
-      access_key_id = "rcloneadmin";
-      secret_access_key = "rcloneadmin";
-    };
+    #credentials = {
+    #  access_key_id = "rcloneadmin";
+    #  secret_access_key = "rcloneadmin";
+    #};
   };
 
   # Data chunking
