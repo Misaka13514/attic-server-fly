@@ -62,8 +62,13 @@
               proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
               proxy_buffering off;
               proxy_request_buffering off;
+              proxy_http_version 1.1;
+              proxy_set_header Connection "";
+              proxy_read_timeout 600s;
+              proxy_send_timeout 600s;
 
               location /attic-storage/ {
+                proxy_set_header Authorization "";
                 proxy_pass http://127.0.0.1:9000;
               }
 
