@@ -74,7 +74,7 @@ _: {
     # Custom S3 endpoint
     #
     # Set this if you are using an S3-compatible object storage (e.g., Minio).
-    endpoint = "https://attic-server-fly.fly.dev/s3";
+    endpoint = "https://attic-server-fly.fly.dev/";
 
     # Credentials
     #

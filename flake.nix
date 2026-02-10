@@ -63,8 +63,7 @@
               proxy_buffering off;
               proxy_request_buffering off;
 
-              location /s3/ {
-                rewrite ^/s3/(.*) /$1 break;
+              location /attic-storage/ {
                 proxy_pass http://127.0.0.1:9000;
               }
 
