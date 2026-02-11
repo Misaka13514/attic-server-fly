@@ -92,6 +92,8 @@
                 proxy_set_header Connection "";
                 proxy_read_timeout 600s;
                 proxy_send_timeout 600s;
+                send_timeout 600s;
+                client_body_timeout 600s;
 
                 proxy_pass http://127.0.0.1:8081;
               }
@@ -118,6 +120,8 @@
                 proxy_set_header Connection "";
                 proxy_read_timeout 600s;
                 proxy_send_timeout 600s;
+                send_timeout 600s;
+                client_body_timeout 600s;
 
                 proxy_pass http://127.0.0.1:9000;
               }
