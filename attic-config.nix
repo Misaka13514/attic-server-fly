@@ -100,13 +100,13 @@ _: {
     nar-size-threshold = 1 * 1024 * 1024; # chunk files that are 1 MiB or larger
 
     # The preferred minimum size of a chunk, in bytes
-    min-size = 1 * 1024 * 1024; # 1 MiB
+    min-size = 2 * 1024 * 1024; # 2 MiB
 
     # The preferred average size of a chunk, in bytes
-    avg-size = 16 * 1024 * 1024; # 16 MiB
+    avg-size = 8 * 1024 * 1024; # 8 MiB
 
     # The preferred maximum size of a chunk, in bytes
-    max-size = 32 * 1024 * 1024; # 32 MiB
+    max-size = 16 * 1024 * 1024; # 16 MiB
   };
 
   # Compression

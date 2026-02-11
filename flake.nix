@@ -2,7 +2,7 @@
   description = "Free Attic server (fly.io + supabase + rclone to s3)";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     git-hooks = {
       url = "github:cachix/git-hooks.nix";
@@ -25,7 +25,17 @@
         atticConfig = import ./attic-config.nix { };
         atticConfigFile = (pkgs.formats.toml { }).generate "attic.toml" atticConfig;
 
-        inherit (pkgs) attic-server busybox nginx;
+        # Patch attic-server to increase S3 CHUNK_SIZE threshold
+        attic-server = pkgs.attic-server.overrideAttrs (oldAttrs: {
+          postPatch = (oldAttrs.postPatch or "") + ''
+            echo "Patching CHUNK_SIZE in server/src/storage/s3.rs..."
+            substituteInPlace server/src/storage/s3.rs \
+              --replace-fail 'const CHUNK_SIZE: usize = 8 * 1024 * 1024;' \
+                             'const CHUNK_SIZE: usize = 32 * 1024 * 1024;'
+          '';
+        });
+
+        inherit (pkgs) busybox nginx;
         rclone = pkgs.rclone.override {
           enableCmount = false;
         };
@@ -159,8 +169,8 @@
             --addr 127.0.0.1:9000 \
             --vfs-cache-mode off \
             --buffer-size 0M \
-            --transfers 2 \
-            --checkers 2 \
+            --transfers 1 \
+            --checkers 1 \
             --no-modtime \
             --onedrive-no-versions \
             --log-level NOTICE \

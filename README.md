@@ -17,7 +17,7 @@ A key feature of this setup is the automatic handling of S3 credentials. On cont
 1. **Fly Edge (External):** Handles public TLS termination (Port 443) and forwards plain HTTP traffic to the container's port 8080.
 2. **Nginx (Port 8080 - Internal):** The main entrypoint inside the container. It routes traffic based on URL paths and performs critical HTTP header manipulations to satisfy different authentication requirements for uploads versus downloads.
 3. **Attic Server (Port 8081 - Internal):** The core Attic application.
-   - **Configuration**: The `attic-config.nix` used here is modified from the official [config-template.toml](https://github.com/zhaofengli/attic/blob/main/server/src/config-template.toml).
+   - **Configuration**: The `attic-config.nix` used here is modified from the official [config-template.toml](https://github.com/zhaofengli/attic/blob/12cbeca141f46e1ade76728bce8adc447f2166c6/server/src/config-template.toml).
    - **Database**: It connects to an external **Supabase PostgreSQL** instance via the `ATTIC_SERVER_DATABASE_URL` environment variable.
 4. **Rclone (Port 9000 - Internal):** Runs in `serve s3` gateway mode. It translates S3 API calls into Microsoft OneDrive API calls. It is secured by the ephemeral credentials generated on startup.
 
@@ -53,14 +53,21 @@ The most complex aspect of this setup is handling the conflicting authentication
 
 **The Conflict:**
 
-1. **User Downloads:** The Attic Client sends an `Authorization` header (usually `Bearer <token>` or `Basic <token>`) on almost all requests. When it follows a redirect to the S3 gateway (Rclone), it _keeps_ this header. Rclone receives both the S3 Presigned URL (query params) AND the client's Auth token, causing a conflict (Error: `UnsupportedAlgorithm` or `SignatureDoesNotMatch`).
-2. **Server Internal Fetches:** The Attic Server sometimes fetches data from S3 directly (acting as a proxy). In this case, it sends a valid `Authorization: AWS4-HMAC...` header, which _must_ be preserved.
+1. **User Downloads:** The Attic Client uses `reqwest::Client::builder().default_headers()` ([source](https://github.com/zhaofengli/attic/blob/12cbeca141f46e1ade76728bce8adc447f2166c6/client/src/api/mod.rs#L241-L249)) with `Authorization: bearer <token>`. reqwest's default redirect policy preserves all headers, including Authorization. When the client follows a 307 redirect to the S3 gateway (Rclone), it sends both the presigned URL (query params) AND the Attic auth token, causing S3 signature conflicts (Error: `UnsupportedAlgorithm` or `SignatureDoesNotMatch`).
+
+2. **Server Internal Fetches:** The Attic Server uses AWS SDK's S3 Client ([source](https://github.com/zhaofengli/attic/blob/12cbeca141f46e1ade76728bce8adc447f2166c6/server/src/storage/s3.rs)) which automatically adds `Authorization: AWS4-HMAC-SHA256 ...` headers when uploading chunks or fetching data as a proxy (when `prefer_stream=true`). These headers _must_ be preserved to authenticate with S3-compatible storage.
 
 **The Solution (Nginx Map):**
 We use Nginx to inspect the `Authorization` header content dynamically using a **Whitelist Strategy**:
 
-- **Pass `AWS` Signatures:** If the header starts with `AWS4-HMAC-SHA256` (used by the Attic Server internally or for uploads), Nginx passes it through to Rclone.
-- **Strip Everything Else:** If the header is anything else (e.g., `Bearer`, `Basic`), Nginx removes it. This forces Rclone to ignore the client's invalid header and authenticate solely via the valid Presigned URL query parameters.
+- **Pass AWS4 Signatures:** If the header starts with `AWS4-HMAC-SHA256` (used by AWS SDK for server-side uploads/downloads), Nginx passes it through to Rclone.
+- **Strip Everything Else:** If the header is anything else (e.g., `Bearer`, `Basic`), Nginx removes it. This forces Rclone to ignore the client's token and authenticate solely via presigned URL query parameters.
+
+**Code References:**
+
+- Attic Server chooses between redirect mode (`prefer_stream=false`) and proxy mode (`prefer_stream=true`): [binary_cache.rs#L218](https://github.com/zhaofengli/attic/blob/12cbeca141f46e1ade76728bce8adc447f2166c6/server/src/api/binary_cache.rs#L218) (single chunk NAR) and [#L245](https://github.com/zhaofengli/attic/blob/12cbeca141f46e1ade76728bce8adc447f2166c6/server/src/api/binary_cache.rs#L245) (multi-chunk reassembly)
+- S3 backend generates presigned URLs when `prefer_stream=false`: [s3.rs#L143-L164](https://github.com/zhaofengli/attic/blob/12cbeca141f46e1ade76728bce8adc447f2166c6/server/src/storage/s3.rs#L143-L164)
+- Upload flow uses AWS SDK directly with AWS4 signatures: [upload_path.rs#L676](https://github.com/zhaofengli/attic/blob/12cbeca141f46e1ade76728bce8adc447f2166c6/server/src/api/v1/upload_path.rs#L676)
 
 ### Sequence Diagram: Push and Pull Operations
 
@@ -73,51 +80,60 @@ sequenceDiagram
     participant O as OneDrive
 
     note over C, O: === ATTIC PUSH (UPLOAD) ===
-    C->>N: POST /_api/v1/upload-path (Auth: Bearer Token)
+    C->>N: PUT /_api/v1/upload-path (Auth: Bearer Token + Stream Body)
+    note right of N: Nginx passes all /_api/* requests to Attic Server
     N->>A: Proxy Request
-    A-->>N: Return Upload Instructions
-    N-->>C: 200 OK
+    note right of A: Server chunks, compresses, then uploads to S3 backend<br/>AWS SDK automatically adds Authorization: AWS4-HMAC-...
 
-    par Streaming Upload
-        C->>N: PUT /attic-storage/blob.chunk (Auth: S3 AWS4-HMAC...)
+    loop For each chunk (parallel uploads)
+        A->>N: PUT /attic-storage/{uuid}.chunk (Auth: AWS4-HMAC-...)
         note right of N: Nginx Map: Whitelisted "AWS4", PASSING Auth header
-        N->>R: PUT /attic-storage/blob.chunk
+        N->>R: PUT /attic-storage/{uuid}.chunk (Auth: AWS4-HMAC-...)
         R->>O: Upload Stream (Encrypted)
         O-->>R: 200 OK
         R-->>N: 200 OK
-        N-->>C: 200 OK
+        N->>A: 200 OK
     end
 
-    C->>N: POST /_api/v1/finish-upload
-    N->>A: Proxy Request
-    A-->>N: 200 OK
+    A-->>N: 200 OK (Upload Result)
     N-->>C: 200 OK
 
     note over C, O: === ATTIC PULL (DOWNLOAD) ===
-    C->>N: GET /nar/xyz.nar (Auth: Bearer/Basic)
+    C->>N: GET /{cache}/{hash}.narinfo (Auth: Bearer/Basic)
+    note right of C: Client first requests NAR metadata
+    N->>A: Proxy Request
+    A-->>N: 200 OK (NARInfo with NAR URL)
+    N-->>C: 200 OK
+
+    C->>N: GET /nar/{hash}.nar (Auth: Bearer/Basic)
     N->>A: Proxy Request
 
-    alt Mode A: Direct Redirect (Optimized)
-        A-->>N: 307 Redirect to /attic-storage/xyz...?Signature=...
+    alt Mode A: Direct Redirect (Single-Chunk NAR, prefer_stream=false)
+        note right of A: When NAR is a single chunk, server uses prefer_stream=false<br/>S3 backend generates presigned URL for client redirect
+        A-->>N: 307 Redirect to /attic-storage/{uuid}.chunk?X-Amz-Signature=...
         N-->>C: 307 Redirect
-        C->>N: GET /attic-storage/xyz...?Signature=... (Auth: Bearer/Basic)
-        note right of N: Nginx Map: Not AWS4, STRIPPING Auth header
-        N->>R: GET /attic-storage/xyz...?Signature=... (Auth: (empty))
+        note right of C: reqwest default policy: preserves Authorization header in redirects!
+        C->>N: GET /attic-storage/{uuid}.chunk?X-Amz-Signature=... (Auth: Bearer <token>)
+        note right of N: Nginx Map: Not AWS4, STRIPPING Auth header to avoid conflict
+        N->>R: GET /attic-storage/{uuid}.chunk?X-Amz-Signature=... (Auth: (empty))
         R->>O: Download Stream (API Call)
         O-->>R: File Data
         R-->>N: File Data
         N-->>C: File Data
-    else Mode B: Server Proxy (Fallback/Internal)
-        note right of A: Attic decides to fetch data itself
-        A->>N: GET /attic-storage/xyz... (Auth: AWS4-HMAC...)
-        note right of N: Nginx Map: Whitelisted "AWS4", PASSING Auth header
-        N->>R: GET /attic-storage/xyz... (Auth: AWS4-HMAC...)
-        R->>O: Download Stream (API Call)
-        O-->>R: File Data
-        R-->>N: File Data
-        N->>A: File Data
-        A-->>N: File Data
-        N-->>C: File Data
+    else Mode B: Server Proxy (Multi-Chunk NAR Reassembly, prefer_stream=true)
+        note right of A: When NAR spans multiple chunks, server uses prefer_stream=true<br/>Attic server fetches all chunks and streams reassembled NAR
+        loop For each chunk
+            A->>N: GET /attic-storage/{uuid}.chunk (Auth: AWS4-HMAC-...)
+            note right of N: Nginx Map: Whitelisted "AWS4", PASSING Auth header
+            N->>R: GET /attic-storage/{uuid}.chunk (Auth: AWS4-HMAC-...)
+            R->>O: Download Stream (API Call)
+            O-->>R: Chunk Data
+            R-->>N: Chunk Data
+            N->>A: Chunk Data
+        end
+        note right of A: Server reassembles chunks into complete NAR stream
+        A-->>N: Stream Reassembled NAR
+        N-->>C: Stream Reassembled NAR
     end
 ```
 
