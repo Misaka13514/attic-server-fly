@@ -43,7 +43,7 @@ _: {
     # Connection URL
     #
     # For production use it's recommended to use PostgreSQL.
-    #url = "";
+    #url = "%database_url%";
 
     # Whether to enable sending on periodic heartbeat queries
     #
@@ -61,7 +61,7 @@ _: {
     # ## Local storage
 
     # The directory to store all files under
-    #path = "";
+    #path = "%storage_path%";
 
     # ## S3 Storage (set type to "s3" and uncomment below)
 
@@ -81,8 +81,8 @@ _: {
     # If unset, the credentials are read from the `AWS_ACCESS_KEY_ID` and
     # `AWS_SECRET_ACCESS_KEY` environment variables.
     #credentials = {
-    #  access_key_id = "rcloneadmin";
-    #  secret_access_key = "rcloneadmin";
+    #  access_key_id = "";
+    #  secret_access_key = "";
     #};
   };
 
@@ -97,16 +97,16 @@ _: {
     #
     # If 0, chunking is disabled entirely for newly-uploaded NARs.
     # If 1, all NARs are chunked.
-    nar-size-threshold = 65536; # chunk files that are 64 KiB or larger
+    nar-size-threshold = 64 * 1024; # chunk files that are 64 KiB or larger
 
     # The preferred minimum size of a chunk, in bytes
-    min-size = 16384;
+    min-size = 1024 * 1024; # 1 MiB
 
     # The preferred average size of a chunk, in bytes
-    avg-size = 65536;
+    avg-size = 3 * 1024 * 1024; # 3 MiB
 
     # The preferred maximum size of a chunk, in bytes
-    max-size = 262144;
+    max-size = 4 * 1024 * 1024; # 4 MiB
   };
 
   # Compression
@@ -114,7 +114,7 @@ _: {
     # Compression type
     #
     # Can be "none", "brotli", "zstd", or "xz"
-    type = "none";
+    type = "none"; # compression disabled
 
     # Compression level
     #level = 8;
@@ -166,7 +166,7 @@ _: {
     #   # Set this to the base64-encoded private half of an RSA PEM PKCS1 key.
     #   # You can also set it via the `ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64`
     #   # environment variable.
-    #   token-rs256-secret-base64 = "";
+    #   token-rs256-secret-base64 = "%token_rs256_secret_base64%";
 
     #   # JWT HS256 secret key
     #   #
