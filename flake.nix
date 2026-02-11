@@ -56,8 +56,12 @@
             access_log /dev/stdout;
 
             map $http_authorization $auth_header {
-              "~^Bearer" "";               # Strip Bearer tokens (User/Nix clients)
-              default $http_authorization; # Pass through AWS signatures (Attic Server)
+              # 1. ALLOW: Standard S3 Signature (used by Attic Server proxy & Uploads)
+              "~^AWS4-HMAC-SHA256" $http_authorization;
+
+              # 2. DENY: Everything else (Basic, Bearer, etc.)
+              # This strips the conflicting user tokens so Rclone uses the URL query params.
+              default "";
             }
 
             server {

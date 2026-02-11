@@ -49,15 +49,18 @@ graph TD
 
 ## Request Flow & The Authentication Solution
 
-The most complex aspect of this setup is handling the conflicting authentication mechanisms required for S3 uploads vs. downloads when using Attic Client through a proxy.
+The most complex aspect of this setup is handling the conflicting authentication mechanisms required for S3 access when using the Attic Client through a proxy.
 
-- **The Conflict:** Attic Client sends its own `Authorization: Bearer <token>` header on almost all requests.
-- For S3 **uploads (PUT)**, the client _replaces_ this header with a valid `Authorization: AWS4-HMAC-SHA256...` signature header. This must be passed through.
-- For S3 **downloads (GET)**, the client uses a presigned URL (authentication via query parameters) but _still sends_ its Attic Bearer token header. Rclone receives two conflicting auth methods and fails.
+**The Conflict:**
 
-- **The Solution (Nginx Map):** We use Nginx to dynamically modify the `Authorization` header based on the request method.
-- If `GET`: The `Authorization` header is stripped before reaching Rclone, forcing Rclone to rely only on the valid presigned URL query parameters.
-- If `PUT`/`DELETE`: The `Authorization` header (containing the necessary S3 signature) is passed through.
+1. **User Downloads:** The Attic Client sends an `Authorization` header (usually `Bearer <token>` or `Basic <token>`) on almost all requests. When it follows a redirect to the S3 gateway (Rclone), it _keeps_ this header. Rclone receives both the S3 Presigned URL (query params) AND the client's Auth token, causing a conflict (Error: `UnsupportedAlgorithm` or `SignatureDoesNotMatch`).
+2. **Server Internal Fetches:** The Attic Server sometimes fetches data from S3 directly (acting as a proxy). In this case, it sends a valid `Authorization: AWS4-HMAC...` header, which _must_ be preserved.
+
+**The Solution (Nginx Map):**
+We use Nginx to inspect the `Authorization` header content dynamically using a **Whitelist Strategy**:
+
+- **Pass `AWS` Signatures:** If the header starts with `AWS4-HMAC-SHA256` (used by the Attic Server internally or for uploads), Nginx passes it through to Rclone.
+- **Strip Everything Else:** If the header is anything else (e.g., `Bearer`, `Basic`), Nginx removes it. This forces Rclone to ignore the client's invalid header and authenticate solely via the valid Presigned URL query parameters.
 
 ### Sequence Diagram: Push and Pull Operations
 
@@ -72,42 +75,50 @@ sequenceDiagram
     note over C, O: === ATTIC PUSH (UPLOAD) ===
     C->>N: POST /_api/v1/upload-path (Auth: Bearer Token)
     N->>A: Proxy Request
-    A-->>N: Return Upload Instructions (S3 Targets via Nginx)
+    A-->>N: Return Upload Instructions
     N-->>C: 200 OK
 
     par Streaming Upload
         C->>N: PUT /attic-storage/blob.chunk (Auth: S3 AWS4-HMAC...)
-        note right of N: Nginx Action: Pass-through Auth Header for PUT
-        N->>R: PUT /attic-storage/blob.chunk (Auth: S3 AWS4-HMAC...)
-        R->>O: Upload Stream
-        O-->>R: OK
+        note right of N: Nginx Map: Whitelisted "AWS4", PASSING Auth header
+        N->>R: PUT /attic-storage/blob.chunk
+        R->>O: Upload Stream (Encrypted)
+        O-->>R: 200 OK
         R-->>N: 200 OK
         N-->>C: 200 OK
     end
 
-    C->>N: POST /_api/v1/finish-upload (Auth: Bearer Token)
+    C->>N: POST /_api/v1/finish-upload
     N->>A: Proxy Request
     A-->>N: 200 OK
     N-->>C: 200 OK
 
     note over C, O: === ATTIC PULL (DOWNLOAD) ===
-    C->>N: GET /nar/xyz.narinfo (Auth: Bearer Token)
+    C->>N: GET /nar/xyz.nar (Auth: Bearer/Basic)
     N->>A: Proxy Request
-    note right of A: Attic generates Presigned S3 URL pointing to Nginx
-    A-->>N: 307 Redirect location: /attic-storage/xyz.nar?...&Signature=...
-    N-->>C: 307 Redirect
 
-    C->>N: GET /attic-storage/xyz.nar?...&Signature=... (Auth: Bearer Token)
-    critical Nginx Intelligent Header Handling
-        note right of N: Request method is GET.
-        note right of N: Nginx strips 'Authorization: Bearer...' header to prevent Rclone conflict.
+    alt Mode A: Direct Redirect (Optimized)
+        A-->>N: 307 Redirect to /attic-storage/xyz...?Signature=...
+        N-->>C: 307 Redirect
+        C->>N: GET /attic-storage/xyz...?Signature=... (Auth: Bearer/Basic)
+        note right of N: Nginx Map: Not AWS4, STRIPPING Auth header
+        N->>R: GET /attic-storage/xyz...?Signature=... (Auth: (empty))
+        R->>O: Download Stream (API Call)
+        O-->>R: File Data
+        R-->>N: File Data
+        N-->>C: File Data
+    else Mode B: Server Proxy (Fallback/Internal)
+        note right of A: Attic decides to fetch data itself
+        A->>N: GET /attic-storage/xyz... (Auth: AWS4-HMAC...)
+        note right of N: Nginx Map: Whitelisted "AWS4", PASSING Auth header
+        N->>R: GET /attic-storage/xyz... (Auth: AWS4-HMAC...)
+        R->>O: Download Stream (API Call)
+        O-->>R: File Data
+        R-->>N: File Data
+        N->>A: File Data
+        A-->>N: File Data
+        N-->>C: File Data
     end
-    N->>R: GET /attic-storage/xyz.nar?...&Signature=... (Auth: (empty))
-    note right of R: Rclone validates request using only URL Query Params.
-    R->>O: Download Stream
-    O-->>R: Data Stream
-    R-->>N: Data Stream
-    N-->>C: Data Stream
 ```
 
 ## Deployment & Configuration
