@@ -32,6 +32,10 @@
             substituteInPlace server/src/storage/s3.rs \
               --replace-fail 'const CHUNK_SIZE: usize = 8 * 1024 * 1024;' \
                              'const CHUNK_SIZE: usize = 32 * 1024 * 1024;'
+            echo "Patching CONCURRENT_CHUNK_UPLOADS in server/src/api/v1/upload_path.rs..."
+            substituteInPlace server/src/api/v1/upload_path.rs \
+              --replace-fail 'const CONCURRENT_CHUNK_UPLOADS: usize = 10;' \
+                             'const CONCURRENT_CHUNK_UPLOADS: usize = 1;'
           '';
         });
 
