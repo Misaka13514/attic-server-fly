@@ -55,9 +55,9 @@
             proxy_temp_path       /tmp/nginx_proxy;
             access_log /dev/stdout;
 
-            map $request_method $auth_header {
-              GET     "";
-              default $http_authorization;
+            map $http_authorization $auth_header {
+              "~^Bearer" "";               # Strip Bearer tokens (User/Nix clients)
+              default $http_authorization; # Pass through AWS signatures (Attic Server)
             }
 
             server {
