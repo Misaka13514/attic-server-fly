@@ -148,13 +148,13 @@
           echo "--- Starting Rclone S3 Gateway (Port 9000) ---"
           ${rclone}/bin/rclone serve s3 remote:attic \
             --addr 127.0.0.1:9000 \
-            --vfs-cache-mode full \
-            --vfs-cache-max-size 2G \
+            --vfs-cache-mode writes \
+            --vfs-cache-max-size 4G \
             --vfs-read-chunk-size 8M \
             --vfs-write-back 5s \
             --buffer-size 0M \
-            --transfers 4 \
-            --checkers 4 \
+            --transfers 1 \
+            --checkers 1 \
             --no-modtime \
             --onedrive-no-versions \
             --log-level NOTICE \
