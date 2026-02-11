@@ -98,6 +98,11 @@
 
               location /attic-storage/ {
                 proxy_set_header Authorization $auth_header;
+                proxy_set_header Accept-Encoding "";
+                sub_filter_types text/xml;
+                sub_filter '<InitiateMultipartUpload>' '<InitiateMultipartUploadResult>';
+                sub_filter '</InitiateMultipartUpload>' '</InitiateMultipartUploadResult>';
+                sub_filter_once off;
 
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;
