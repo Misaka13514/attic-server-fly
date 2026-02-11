@@ -34,7 +34,7 @@
         nginxConf = pkgs.writeText "nginx.conf" ''
           user root root;
           pid /tmp/nginx.pid;
-          error_log /dev/stderr info;
+          error_log /dev/stderr warn;
           daemon off;
           worker_processes auto;
 
@@ -63,6 +63,11 @@
             server {
               listen 8080;
               server_name _;
+
+              location = /healthz {
+                access_log off;
+                return 200 "OK";
+              }
 
               location / {
                 if ($request_method = GET) {
@@ -131,14 +136,17 @@
             --addr 127.0.0.1:9000 \
             --vfs-cache-mode full \
             --vfs-cache-max-size 2G \
-            --vfs-read-chunk-size 1M \
+            --vfs-read-chunk-size 8M \
             --vfs-write-back 5s \
             --buffer-size 0M \
             --transfers 4 \
             --checkers 4 \
             --no-modtime \
             --onedrive-no-versions \
-            --log-level INFO \
+            --log-level NOTICE \
+            --stats 10m \
+            --stats-one-line \
+            --stats-log-level NOTICE \
             2>&1 | ${busybox}/bin/awk '{ print "[RCLONE] " $0; fflush(); }' &
           RCLONE_PID=$!
 
